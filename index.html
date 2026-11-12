@@ -3,34 +3,251 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Compare lunar south-pole landing sites by Sun (power) and Earth (communications) visibility.">
 <title>Lunar Landing Site Navigator</title>
 <style>
-  /* Temporary simple styling — the real space theme comes in Step 5 */
-  body { font-family: system-ui, sans-serif; background: #0b0f1a; color: #e6e9f0; margin: 0; padding: 16px; }
-  h1 { font-size: 1.4rem; }
-  label { display: inline-block; margin: 4px 12px 4px 0; }
-  input, button { font-size: 1rem; padding: 6px; border-radius: 6px; border: 1px solid #445; background: #161c2c; color: inherit; }
-  button { cursor: pointer; background: #2b4a8a; }
-  pre { background: #161c2c; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+  /* ============================================================
+     STEP 5 — Dark space theme
+     All colours live here as variables so they are easy to change.
+     ============================================================ */
+  :root {
+    --bg: #060a14;
+    --card: rgba(16, 23, 40, 0.88);
+    --card-border: #24304a;
+    --text: #e8ebf3;
+    --muted: #9aa4b8;
+    --accent: #6ea8ff;
+    --sun: #f5b83d;          /* Sun series colour  */
+    --earth: #4ea3ff;        /* Earth series colour */
+    --both: rgba(64, 200, 120, 0.22);   /* "power + comms" shading */
+    --best-bg: rgba(64, 200, 120, 0.16);
+    --best-text: #8ee6ad;
+    --danger: #ff8a8a;
+    --input-bg: #0f1628;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  /* A light sprinkle of stars made only with CSS gradients (no images) */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image:
+      radial-gradient(1px 1px at 23px 41px, rgba(255,255,255,.7), transparent),
+      radial-gradient(1px 1px at 141px 97px, rgba(255,255,255,.5), transparent),
+      radial-gradient(1.5px 1.5px at 77px 163px, rgba(255,255,255,.6), transparent),
+      radial-gradient(1px 1px at 199px 13px, rgba(255,255,255,.4), transparent),
+      radial-gradient(1px 1px at 251px 211px, rgba(200,220,255,.6), transparent),
+      radial-gradient(ellipse at 80% -10%, rgba(60,90,170,.25), transparent 60%);
+    background-size: 280px 240px, 280px 240px, 280px 240px, 280px 240px, 280px 240px, 100% 100%;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header { padding: 8px 0 4px; }
+  h1 { font-size: clamp(1.4rem, 3.5vw, 2rem); margin: 0; letter-spacing: .01em; }
+  .subtitle { color: var(--muted); margin: 4px 0 0; }
+  h2 { font-size: 1.15rem; margin: 0 0 12px; }
+  h3 { font-size: 1rem; margin: 16px 0 6px; }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 14px; padding: 16px; margin-top: 16px;
+    backdrop-filter: blur(4px);
+  }
+  .muted { color: var(--muted); }
+  .small { font-size: .875rem; }
+
+  /* ---------- Form controls (big enough for fingers on iPad) ---------- */
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: .875rem; color: var(--muted); }
+  input, select, button {
+    font: inherit; font-size: 16px;          /* 16px stops iOS from zooming in */
+    color: var(--text); background: var(--input-bg);
+    border: 1px solid #33415e; border-radius: 10px;
+    min-height: 44px; padding: 8px 12px;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button { cursor: pointer; background: #1f3a6e; border-color: #2f5296; }
+  button:hover { background: #26468a; }
+  button.ghost { background: transparent; border-color: #33415e; }
+  input[type="number"] { width: 110px; }
+  input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); margin: 0; }
+
+  .site-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 12px; }
+  .site-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border: 1px solid var(--card-border); border-radius: 10px;
+    min-height: 48px; cursor: pointer;
+  }
+  .site-item .coords { color: var(--muted); font-size: .8rem; display: block; }
+  .site-item .remove { margin-left: auto; min-height: 36px; padding: 4px 10px; }
+  .custom-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 12px; }
+  .custom-form input[type="text"] { width: 200px; }
+  .msg { min-height: 1.4em; margin: 6px 0 0; font-size: .9rem; }
+  .msg.error { color: var(--danger); }
+  .msg.ok { color: var(--best-text); }
+
+  /* ---------- Comparison table ---------- */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 640px; }
+  th, td { padding: 10px 10px; text-align: right; border-bottom: 1px solid var(--card-border); }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; vertical-align: bottom; }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: rgba(110,168,255,.06); }
+  tbody tr.selected { background: rgba(110,168,255,.12); }
+  tbody tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  td { white-space: nowrap; }
+  td:first-child { white-space: normal; }
+  td.best { background: var(--best-bg); color: var(--best-text); font-weight: 700; }
+  td.best::after { content: " ★"; font-size: .8em; }
+
+  /* ---------- Chart + sky view ---------- */
+  .viz-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 940px) { .viz-grid { grid-template-columns: 3fr 2fr; } }
+  .viz-grid .card { margin-top: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .875rem; color: var(--muted); margin-bottom: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { display: inline-block; width: 18px; height: 4px; border-radius: 2px; }
+  .sw.box { height: 12px; border-radius: 3px; }
+  .sw.dash { height: 0; border-top: 2px dashed #8b95ab; border-radius: 0; }
+  .sw.dot { height: 0; border-top: 2px dotted var(--earth); border-radius: 0; }
+  canvas { display: block; width: 100%; touch-action: pan-y; }
+  #sky { max-width: 440px; margin: 0 auto; }
+  .time-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .time-row input[type="range"] { flex: 1; min-height: 44px; padding: 0; background: transparent; border: none; accent-color: var(--accent); }
+  .time-label { font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .readout { display: grid; gap: 6px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .readout div { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--card-border); }
+
+  /* ---------- How it works ---------- */
+  .how p, .how li { color: #cfd5e2; }
+  .how ol, .how ul { padding-left: 1.3em; }
+  .how table { min-width: 0; margin-top: 8px; }
+  .how td, .how th { text-align: left; }
+  footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 24px 0 8px; }
 </style>
 </head>
 <body>
-<h1>🌙 Lunar Landing Site Navigator — Step 1: Astronomy test</h1>
+<main>
+  <header>
+    <h1>🌙 Lunar Landing Site Navigator</h1>
+    <p class="subtitle">When does each south-pole site see the Sun (☀️ power) and the Earth (🌍 direct communication)?</p>
+  </header>
 
-<div>
-  <label>Date/time (UTC) <input id="t-date" type="datetime-local" value="2026-11-14T00:00"></label>
-  <label>Latitude ° <input id="t-lat" type="number" step="0.01" value="-89.45"></label>
-  <label>Longitude °E <input id="t-lon" type="number" step="0.01" value="222.7"></label>
-  <button id="t-go">Compute</button>
-</div>
-<pre id="t-out"></pre>
+  <!-- ================= STEP 2: Controls ================= -->
+  <section class="card" aria-labelledby="h-controls">
+    <h2 id="h-controls">1. Choose time window and sites</h2>
+    <div class="controls">
+      <label class="field">Start date (UTC)
+        <input id="start" type="date" value="2026-11-14">
+      </label>
+      <label class="field">Length
+        <select id="length">
+          <option value="14">14 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="60">60 days</option>
+          <option value="180">180 days</option>
+          <option value="365">365 days</option>
+        </select>
+      </label>
+      <label class="field">Min. Earth elevation for comms (°)
+        <input id="minEl" type="number" step="0.5" min="-10" max="30" value="1">
+      </label>
+      <p id="sampleInfo" class="muted small" style="margin:0 0 10px"></p>
+    </div>
+    <p id="controlMsg" class="msg error" role="status"></p>
+
+    <div id="siteList" class="site-list"></div>
+
+    <h3>Add a custom site</h3>
+    <form id="customForm" class="custom-form" novalidate>
+      <label class="field">Name <input id="cName" type="text" placeholder="My site" maxlength="40"></label>
+      <label class="field">Latitude (°, −90…90) <input id="cLat" type="number" step="0.01" placeholder="-88.0"></label>
+      <label class="field">Longitude (°E, 0…360) <input id="cLon" type="number" step="0.01" placeholder="120.0"></label>
+      <button type="submit">Add site</button>
+    </form>
+    <p id="customMsg" class="msg" role="status"></p>
+  </section>
+
+  <!-- ================= STEP 2: Comparison table ================= -->
+  <section class="card" aria-labelledby="h-table">
+    <h2 id="h-table">2. Compare sites</h2>
+    <p class="muted small" style="margin-top:-6px">★ = best value in each column. Tap a row to show that site in the chart and sky view.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="tableHead"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= STEPS 3 & 4: Chart + Sky view ================= -->
+  <div class="viz-grid" style="margin-top:16px">
+    <section class="card" aria-labelledby="h-chart">
+      <h2 id="h-chart">3. Elevation over time — <span id="chartSiteName"></span></h2>
+      <div class="controls" style="margin-bottom:10px">
+        <label class="field">Site <select id="chartSite"></select></label>
+      </div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--sun)"></i>Sun</span>
+        <span><i class="sw" style="background:var(--earth)"></i>Earth</span>
+        <span><i class="sw box" style="background:var(--both)"></i>Power + comms</span>
+        <span><i class="sw dash"></i>Horizon (0°)</span>
+        <span><i class="sw dot"></i>Comms minimum</span>
+      </div>
+      <canvas id="chart" aria-label="Line chart of Sun and Earth elevation over time"></canvas>
+      <div class="time-row">
+        <button id="play" class="ghost" aria-label="Play animation">▶</button>
+        <input id="slider" type="range" min="0" max="0" value="0" aria-label="Time">
+      </div>
+      <div id="timeLabel" class="time-label muted"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-sky">
+      <h2 id="h-sky">4. Sky view</h2>
+      <canvas id="sky" aria-label="Polar sky plot with Sun and Earth positions"></canvas>
+      <p id="skyNote" class="muted small" style="margin:6px 0 0"></p>
+      <div id="readout" class="readout"></div>
+    </section>
+  </div>
+
+  <!-- ================= STEP 5: How it works ================= -->
+  <section class="card how" aria-labelledby="h-how">
+    <h2 id="h-how">How it works</h2>
+    <ol>
+      <li><b>Sun from Earth:</b> Meeus, <i>Astronomical Algorithms</i>, ch. 25 (low-precision solar position).</li>
+      <li><b>Moon from Earth:</b> Meeus ch. 47 — all 120 main terms for longitude, latitude and distance.</li>
+      <li><b>J2000 coordinates:</b> precession is removed (−1.3969713°·T from the longitude), then rotated from the ecliptic to Earth's equator.</li>
+      <li><b>Moon-fixed frame:</b> IAU 2009 lunar rotation model (pole direction α₀, δ₀ and spin angle W with the E1–E13 wobble terms).</li>
+      <li><b>Local sky:</b> at each site, "up", "east" and "north" vectors give elevation and azimuth. The Earth's direction is measured from the <i>surface</i>, not the Moon's centre (this lowers the Earth by ≈ 0.26° near the horizon).</li>
+      <li><b>Statistics:</b> the window is sampled every hour (every 3 h for 180 and 365 days). <i>Sunlit</i> = Sun centre above 0°. <i>Earth visible</i> = Earth elevation ≥ the comms minimum. <i>Longest</i> periods are the longest unbroken runs inside the window.</li>
+    </ol>
+    <h3>Limitations</h3>
+    <ul>
+      <li><b>Flat horizon:</b> mountains and crater walls are ignored. At the pole, the Sun and Earth skim the horizon, so real terrain can block them often. Real numbers can be quite different.</li>
+      <li><b>Approximate site coordinates</b> (to ~0.1°); the Sun is treated as a point (its disk is ≈ 0.53° wide, so partial sunlight is not modelled).</li>
+      <li><b>Accuracy:</b> analytical formulas, good to about 0.01–0.05° for the Sun and Earth direction — far smaller than the effect of terrain.</li>
+    </ul>
+    <h3>Next step</h3>
+    <p>Use terrain from NASA's Lunar Reconnaissance Orbiter (LRO) Lunar Orbiter Laser Altimeter (LOLA) elevation maps to build a real horizon profile for each site, and compare the Sun and Earth with that profile instead of 0°.</p>
+    <h3>Self-test (live)</h3>
+    <p class="small muted">Connecting Ridge (−89.45°, 222.7°E), 2026-11-14 00:00 UTC, compared with NASA JPL DE421 reference values.</p>
+    <div class="table-wrap"><table id="selfTest"></table></div>
+  </section>
+
+  <footer>NASA Space Apps Challenge 2026 · Lunar Landing Site Navigator · single-file app, no libraries</footer>
+</main>
 
 <script>
 "use strict";
 
 /* =====================================================================
    PART 1 — ASTRONOMY
-   Goal: skyAt(date, lat, lon) -> where are the Sun and Earth in the sky
+   skyAt(date, lat, lon) -> where are the Sun and Earth in the sky
    as seen by someone standing at (lat, lon) on the Moon?
    ===================================================================== */
 
@@ -52,7 +269,6 @@ function julianDateTT(date) {
 }
 
 // ---- Sun, as seen from Earth (Meeus, Astronomical Algorithms, ch. 25) ----
-// Returns ecliptic longitude/latitude (deg, "of date") and distance (km).
 function sunGeocentric(T) {
   const L0 = 280.46646 + 36000.76983 * T + 0.0003032 * T * T;  // mean longitude
   const M  = 357.52911 + 35999.05029 * T - 0.0001537 * T * T;  // mean anomaly
@@ -148,22 +364,18 @@ function moonGeocentric(T) {
 }
 
 // ---- Ecliptic (of date) -> J2000 equatorial x,y,z ------------------
-// 1) Remove precession: the "of date" longitude drifts ~1.4°/century
-// 2) Tilt from the ecliptic plane to Earth's equator (obliquity ε, J2000)
 const OBLIQUITY_J2000 = 23.4392911;
 function eclipticToJ2000(p, T) {
-  const lon = p.lon - 1.3969713 * T;
+  const lon = p.lon - 1.3969713 * T;   // remove precession
   const lat = p.lat;
   const x = p.dist * cosd(lat) * cosd(lon);
   const y = p.dist * cosd(lat) * sind(lon);
   const z = p.dist * sind(lat);
   const ce = cosd(OBLIQUITY_J2000), se = sind(OBLIQUITY_J2000);
-  return [x, y * ce - z * se, y * se + z * ce];
+  return [x, y * ce - z * se, y * se + z * ce];   // tilt to Earth's equator
 }
 
 // ---- Moon orientation (IAU 2009 / Archinal et al. 2011) -------------
-// alpha0, delta0 = direction of the Moon's north pole in the sky
-// W = how far the Moon has rotated around that pole (prime meridian angle)
 function moonOrientation(d) {          // d = days since J2000 (TT)
   const T = d / 36525;
   const E1 = 125.045 - 0.0529921 * d,  E2 = 250.089 - 0.1059842 * d;
@@ -188,7 +400,7 @@ function moonOrientation(d) {          // d = days since J2000 (TT)
   return { alpha0, delta0, W };
 }
 
-// Rotate a vector about the z axis / x axis (frame rotation by angle a, degrees)
+// Rotate a vector's frame about the z axis / x axis by angle a (degrees)
 function rotZ(v, a) { const c = cosd(a), s = sind(a); return [c * v[0] + s * v[1], -s * v[0] + c * v[1], v[2]]; }
 function rotX(v, a) { const c = cosd(a), s = sind(a); return [v[0], c * v[1] + s * v[2], -s * v[1] + c * v[2]]; }
 
@@ -199,16 +411,30 @@ function toMoonFixed(v, o) {
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
+// ---- Sun & Earth as Moon-fixed vectors (same for every site) ---------
+// Computing this once per time step and reusing it for all sites is a big speed-up.
+function bodyFixedVectors(date) {
+  const d = julianDateTT(date) - 2451545.0;   // days since J2000.0
+  const T = d / 36525;                        // Julian centuries since J2000.0
+  const sunEq  = eclipticToJ2000(sunGeocentric(T), T);
+  const moonEq = eclipticToJ2000(moonGeocentric(T), T);
+  const o = moonOrientation(d);
+  return {
+    sun:   toMoonFixed([sunEq[0] - moonEq[0], sunEq[1] - moonEq[1], sunEq[2] - moonEq[2]], o),
+    earth: toMoonFixed([-moonEq[0], -moonEq[1], -moonEq[2]], o)
+  };
+}
+
 // ---- Elevation & azimuth at a site --------------------------------
-// target: body-fixed vector from Moon centre to the object (km)
-function elevAz(target, latDeg, lonDeg) {
+// target: Moon-fixed vector from the Moon's centre to the object (km).
+// fromCentre=true measures from the Moon's centre (only used by the self-test).
+function elevAz(target, latDeg, lonDeg, fromCentre) {
   const cl = cosd(latDeg), sl = sind(latDeg), co = cosd(lonDeg), so = sind(lonDeg);
   const up    = [cl * co, cl * so, sl];      // straight up from the ground
   const east  = [-so, co, 0];
   const north = [-sl * co, -sl * so, cl];
-  // Look from the site, not from the Moon's centre (matters for Earth: ~0.26°)
-  const site = up.map(c => c * MOON_RADIUS_KM);
-  const v = [target[0] - site[0], target[1] - site[1], target[2] - site[2]];
+  const h = fromCentre ? 0 : MOON_RADIUS_KM;  // observer stands on the surface
+  const v = [target[0] - up[0] * h, target[1] - up[1] * h, target[2] - up[2] * h];
   const len = Math.hypot(v[0], v[1], v[2]);
   const el = Math.asin(dot(v, up) / len) / DEG;
   const az = norm360(Math.atan2(dot(v, east), dot(v, north)) / DEG); // 0=N, 90=E
@@ -216,45 +442,526 @@ function elevAz(target, latDeg, lonDeg) {
 }
 
 // ---- The main function ---------------------------------------------
-function skyAt(date, latDeg, lonEastDeg) {
-  const jd = julianDateTT(date);
-  const d = jd - 2451545.0;        // days since J2000.0
-  const T = d / 36525;             // Julian centuries since J2000.0
-
-  // Positions relative to Earth's centre, in J2000 equatorial coordinates (km)
-  const sunEq  = eclipticToJ2000(sunGeocentric(T), T);
-  const moonEq = eclipticToJ2000(moonGeocentric(T), T);
-
-  // Shift origin to the Moon's centre
-  const sunFromMoon   = [sunEq[0] - moonEq[0], sunEq[1] - moonEq[1], sunEq[2] - moonEq[2]];
-  const earthFromMoon = [-moonEq[0], -moonEq[1], -moonEq[2]];
-
-  // Rotate into the Moon's own frame (it spins and wobbles)
-  const o = moonOrientation(d);
+function skyAt(date, latDeg, lonEastDeg, opts) {
+  const fromCentre = !!(opts && opts.fromCentre);
+  const v = bodyFixedVectors(date);
   return {
-    sun:   elevAz(toMoonFixed(sunFromMoon, o), latDeg, lonEastDeg),
-    earth: elevAz(toMoonFixed(earthFromMoon, o), latDeg, lonEastDeg)
+    sun:   elevAz(v.sun,   latDeg, lonEastDeg, fromCentre),
+    earth: elevAz(v.earth, latDeg, lonEastDeg, fromCentre)
   };
 }
 
-/* ---- Step 1 test UI (will be replaced by the real app later) ---- */
-function runTest() {
-  const date = new Date(document.getElementById("t-date").value + ":00Z"); // treat as UTC
-  const lat = parseFloat(document.getElementById("t-lat").value);
-  const lon = parseFloat(document.getElementById("t-lon").value);
-  const out = document.getElementById("t-out");
-  if (isNaN(date.getTime()) || isNaN(lat) || isNaN(lon)) { out.textContent = "Please enter a valid date, latitude and longitude."; return; }
-  const s = skyAt(date, lat, lon);
-  const ref = skyAt(new Date("2026-11-14T00:00:00Z"), -89.45, 222.7);
-  out.textContent =
-    `Time: ${date.toISOString()}   Site: lat ${lat}°, lon ${lon}°E\n` +
-    `Sun:   elevation ${s.sun.el.toFixed(2)}°   azimuth ${s.sun.az.toFixed(1)}°\n` +
-    `Earth: elevation ${s.earth.el.toFixed(2)}°   azimuth ${s.earth.az.toFixed(1)}°\n\n` +
-    `Sanity check (Connecting Ridge, 2026-11-14 00:00 UTC):\n` +
-    `  Sun ${ref.sun.el.toFixed(2)}° (expected ≈ +1.8°)   Earth ${ref.earth.el.toFixed(2)}° (expected ≈ −6.8°)`;
+/* =====================================================================
+   PART 2 — SITES, SAMPLING AND STATISTICS
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+
+const SITES = [
+  { name: "Connecting Ridge (Shackleton)", lat: -89.45, lon: 222.7 },
+  { name: "Malapert Massif",               lat: -86.0,  lon: 2.9 },
+  { name: "Haworth",                       lat: -87.45, lon: 355.0 },
+  { name: "de Gerlache",                   lat: -88.5,  lon: 272.9 },
+  { name: "Faustini Rim",                  lat: -87.3,  lon: 77.0 },
+  { name: "Nobile Rim",                    lat: -85.2,  lon: 53.5 },
+  { name: "Amundsen Rim",                  lat: -84.5,  lon: 82.8 }
+].map((s, i) => ({ ...s, id: "s" + i, checked: true, custom: false, data: null }));
+let nextSiteId = SITES.length;
+
+// Everything the page needs to remember lives in this one object
+const state = {
+  startMs: 0, days: 30, stepH: 1, n: 0, minEl: 1,
+  vec: null, vecKey: "",          // cached Sun/Earth vectors for the time window
+  selectedId: "s0", idx: 0, hover: null, playing: false
+};
+
+// Read the inputs at the top of the page
+function readControls() {
+  const msg = $("controlMsg");
+  const startMs = Date.parse($("start").value + "T00:00:00Z");
+  const minEl = parseFloat($("minEl").value);
+  if (isNaN(startMs)) { msg.textContent = "Please choose a valid start date."; return false; }
+  if (isNaN(minEl) || minEl < -10 || minEl > 30) { msg.textContent = "Minimum Earth elevation must be between −10° and 30°."; return false; }
+  msg.textContent = "";
+  state.startMs = startMs;
+  state.days = parseInt($("length").value, 10);
+  state.stepH = state.days > 60 ? 3 : 1;      // hourly, or every 3 h for long windows
+  state.minEl = minEl;
+  $("sampleInfo").textContent = `Sampling every ${state.stepH} h · ${Math.round(state.days * 24 / state.stepH)} time steps`;
+  return true;
 }
-document.getElementById("t-go").addEventListener("click", runTest);
-runTest();
+
+// Compute Sun & Earth vectors for every time step (only when the window changes)
+function computeVectors() {
+  const key = state.startMs + "|" + state.days + "|" + state.stepH;
+  if (key === state.vecKey) return;
+  const n = Math.round(state.days * 24 / state.stepH);
+  const sun = new Float64Array(3 * n), earth = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++) {
+    const v = bodyFixedVectors(new Date(state.startMs + i * state.stepH * 3600e3));
+    sun.set(v.sun, 3 * i);
+    earth.set(v.earth, 3 * i);
+  }
+  state.vec = { sun, earth };
+  state.n = n;
+  state.vecKey = key;
+  state.idx = 0;
+}
+
+// Elevation/azimuth time series for one site (cached until the window changes)
+function siteData(site) {
+  if (site.data && site.data.key === state.vecKey) return site.data;
+  const n = state.n;
+  const d = { key: state.vecKey, sunEl: new Float32Array(n), sunAz: new Float32Array(n),
+              earthEl: new Float32Array(n), earthAz: new Float32Array(n) };
+  for (let i = 0; i < n; i++) {
+    const s = elevAz(state.vec.sun.subarray(3 * i, 3 * i + 3), site.lat, site.lon);
+    const e = elevAz(state.vec.earth.subarray(3 * i, 3 * i + 3), site.lat, site.lon);
+    d.sunEl[i] = s.el; d.sunAz[i] = s.az; d.earthEl[i] = e.el; d.earthAz[i] = e.az;
+  }
+  site.data = d;
+  return d;
+}
+
+// Count percentages and find the longest unbroken runs
+function siteStats(d) {
+  const n = state.n;
+  let sun = 0, earth = 0, both = 0, runBoth = 0, bestBoth = 0, runDark = 0, bestDark = 0;
+  for (let i = 0; i < n; i++) {
+    const lit = d.sunEl[i] > 0;
+    const comms = d.earthEl[i] >= state.minEl;
+    if (lit) sun++;
+    if (comms) earth++;
+    if (lit && comms) { both++; runBoth++; bestBoth = Math.max(bestBoth, runBoth); } else runBoth = 0;
+    if (!lit) { runDark++; bestDark = Math.max(bestDark, runDark); } else runDark = 0;
+  }
+  return {
+    sunPct: 100 * sun / n, earthPct: 100 * earth / n, bothPct: 100 * both / n,
+    bothH: bestBoth * state.stepH, darkH: bestDark * state.stepH
+  };
+}
+
+/* ---------- Formatting helpers ---------- */
+const fmtPct = v => v.toFixed(1) + "%";
+const fmtDur = h => h === 0 ? "0 h" : h < 48 ? h + " h" : (h / 24).toFixed(1) + " d";
+const fmtDeg = v => (v < -0.005 ? "−" : "+") + Math.abs(v).toFixed(2) + "°";
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtTime(ms) {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} ` +
+         `${String(d.getUTCHours()).padStart(2, "0")}:00 UTC`;
+}
+const timeOf = i => state.startMs + i * state.stepH * 3600e3;
+const checkedSites = () => SITES.filter(s => s.checked);
+const selectedSite = () => SITES.find(s => s.id === state.selectedId && s.checked) || checkedSites()[0] || null;
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+/* ---------- Site checkboxes ---------- */
+function renderSiteList() {
+  $("siteList").innerHTML = SITES.map(s => `
+    <label class="site-item">
+      <input type="checkbox" data-id="${s.id}" ${s.checked ? "checked" : ""}>
+      <span>${escapeHtml(s.name)}<span class="coords">${s.lat.toFixed(2)}°, ${s.lon.toFixed(1)}°E${s.custom ? " · custom" : ""}</span></span>
+      ${s.custom ? `<button type="button" class="ghost remove" data-remove="${s.id}" aria-label="Remove ${escapeHtml(s.name)}">✕</button>` : ""}
+    </label>`).join("");
+}
+
+/* ---------- Comparison table ---------- */
+const COLUMNS = [
+  { key: "sunPct",   label: "% sunlit",                        better: "max", fmt: fmtPct },
+  { key: "earthPct", label: "% Earth visible",                 better: "max", fmt: fmtPct },
+  { key: "bothPct",  label: "% both",                          better: "max", fmt: fmtPct },
+  { key: "bothH",    label: "Longest power + comms",           better: "max", fmt: fmtDur },
+  { key: "darkH",    label: "Longest darkness",                better: "min", fmt: fmtDur }
+];
+
+function renderTable() {
+  $("tableHead").innerHTML = "<th>Site</th>" + COLUMNS.map(c => `<th>${c.label}</th>`).join("");
+  const sites = checkedSites();
+  if (!sites.length) {
+    $("tableBody").innerHTML = `<tr><td colspan="${COLUMNS.length + 1}" class="muted">Tick at least one site above.</td></tr>`;
+    return;
+  }
+  const rows = sites.map(s => ({ site: s, st: siteStats(siteData(s)) }));
+  // Best value per column (only highlighted when comparing 2+ sites)
+  const best = {};
+  for (const c of COLUMNS) {
+    const vals = rows.map(r => r.st[c.key]);
+    best[c.key] = c.better === "max" ? Math.max(...vals) : Math.min(...vals);
+  }
+  const sel = selectedSite();
+  $("tableBody").innerHTML = rows.map(r => `
+    <tr data-id="${r.site.id}" class="${sel && r.site.id === sel.id ? "selected" : ""}" tabindex="0">
+      <td>${escapeHtml(r.site.name)}</td>
+      ${COLUMNS.map(c => `<td class="${rows.length > 1 && Math.abs(r.st[c.key] - best[c.key]) < 1e-9 ? "best" : ""}">${c.fmt(r.st[c.key])}</td>`).join("")}
+    </tr>`).join("");
+}
+
+/* =====================================================================
+   PART 3 — ELEVATION CHART (canvas)
+   ===================================================================== */
+const CSS = getComputedStyle(document.documentElement);
+const C = {
+  sun: CSS.getPropertyValue("--sun").trim(),
+  earth: CSS.getPropertyValue("--earth").trim(),
+  both: CSS.getPropertyValue("--both").trim(),
+  text: CSS.getPropertyValue("--text").trim(),
+  muted: CSS.getPropertyValue("--muted").trim(),
+  grid: "rgba(150,165,195,0.14)",
+  horizon: "#8b95ab",
+  surface: "#101728"
+};
+
+// Make a canvas sharp on Retina/iPad screens: draw at devicePixelRatio size
+function setupCanvas(canvas, cssHeight) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  canvas.style.height = cssHeight + "px";
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(cssHeight * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, cssHeight);
+  return { ctx, w, h: cssHeight };
+}
+
+// Pick a "nice" tick spacing (0.5, 1, 2, 5, 10 …)
+function niceStep(raw) {
+  for (const s of [0.5, 1, 2, 5, 10, 15, 20, 30, 45]) if (s >= raw) return s;
+  return 90;
+}
+
+let chartGeom = null;   // remembered so pointer events can map x -> time index
+
+function drawChart() {
+  const canvas = $("chart");
+  const height = Math.max(240, Math.min(380, Math.round(canvas.clientWidth * 0.5)));
+  const { ctx, w, h } = setupCanvas(canvas, height);
+  const site = selectedSite();
+  ctx.font = "12px system-ui, -apple-system, sans-serif";
+  if (!site) { ctx.fillStyle = C.muted; ctx.fillText("Tick at least one site.", 16, 28); chartGeom = null; return; }
+
+  const d = siteData(site), n = state.n, minEl = state.minEl;
+
+  // y range: data plus horizon and comms line, rounded to nice ticks
+  let lo = Math.min(0, minEl), hi = Math.max(0, minEl);
+  for (let i = 0; i < n; i++) {
+    lo = Math.min(lo, d.sunEl[i], d.earthEl[i]);
+    hi = Math.max(hi, d.sunEl[i], d.earthEl[i]);
+  }
+  const step = niceStep((hi - lo) / 6);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  if (hi - lo < step) hi += step;
+
+  const L = 46, R = 12, T = 10, B = 26, pw = w - L - R, ph = h - T - B;
+  const X = i => L + (n <= 1 ? 0 : i / (n - 1)) * pw;
+  const Y = el => T + (hi - el) / (hi - lo) * ph;
+  chartGeom = { L, pw, n };
+
+  // Grid + y labels
+  ctx.lineWidth = 1; ctx.strokeStyle = C.grid; ctx.fillStyle = C.muted; ctx.textAlign = "right";
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    const y = Math.round(Y(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + pw, y); ctx.stroke();
+    ctx.fillText((v < 0 ? "−" : "") + Math.abs(+v.toFixed(1)) + "°", L - 6, y + 4);
+  }
+  // x labels: one every few days
+  const totalH = (n - 1) * state.stepH;
+  const dayStep = [1, 2, 5, 7, 14, 30, 61].find(s => state.days / s <= pw / 64) || 61;
+  ctx.textAlign = "center";
+  for (let dd = 0; dd <= state.days; dd += dayStep) {
+    const x = L + (dd * 24 / totalH) * pw;
+    if (x > L + pw + 0.5) break;
+    const t = new Date(state.startMs + dd * 86400e3);
+    ctx.fillText(`${MONTHS[t.getUTCMonth()]} ${t.getUTCDate()}`, x, h - 8);
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, T + ph); ctx.lineTo(Math.round(x) + 0.5, T + ph + 4); ctx.stroke();
+  }
+
+  // Green shading wherever Sun AND Earth are both up
+  ctx.fillStyle = C.both;
+  const half = n > 1 ? pw / (n - 1) / 2 : 0;
+  let runStart = -1;
+  for (let i = 0; i <= n; i++) {
+    const ok = i < n && d.sunEl[i] > 0 && d.earthEl[i] >= minEl;
+    if (ok && runStart < 0) runStart = i;
+    if (!ok && runStart >= 0) {
+      const x0 = Math.max(L, X(runStart) - half), x1 = Math.min(L + pw, X(i - 1) + half);
+      ctx.fillRect(x0, T, Math.max(1, x1 - x0), ph);
+      runStart = -1;
+    }
+  }
+
+  // Dashed horizon at 0°, dotted comms minimum
+  ctx.setLineDash([6, 4]); ctx.strokeStyle = C.horizon; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(L, Y(0)); ctx.lineTo(L + pw, Y(0)); ctx.stroke();
+  if (minEl !== 0) {
+    ctx.setLineDash([2, 3]); ctx.strokeStyle = C.earth; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(L, Y(minEl)); ctx.lineTo(L + pw, Y(minEl)); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // The two lines
+  const series = (arr, color) => {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) i ? ctx.lineTo(X(i), Y(arr[i])) : ctx.moveTo(X(i), Y(arr[i]));
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  };
+  series(d.sunEl, C.sun);
+  series(d.earthEl, C.earth);
+
+  // Slider cursor (solid) and hover crosshair (with tooltip)
+  const marker = (i, strong) => {
+    const x = X(i);
+    ctx.strokeStyle = strong ? "rgba(232,235,243,0.85)" : "rgba(232,235,243,0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, T); ctx.lineTo(Math.round(x) + 0.5, T + ph); ctx.stroke();
+    for (const [arr, col] of [[d.sunEl, C.sun], [d.earthEl, C.earth]]) {
+      ctx.beginPath(); ctx.arc(x, Y(arr[i]), 5, 0, 2 * Math.PI);
+      ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = C.surface; ctx.stroke();
+    }
+  };
+  marker(state.idx, true);
+  if (state.hover !== null && state.hover !== state.idx) marker(state.hover, false);
+
+  const tipIdx = state.hover !== null ? state.hover : null;
+  if (tipIdx !== null) {
+    const lines = [
+      [null, fmtTime(timeOf(tipIdx))],
+      [C.sun, "Sun " + fmtDeg(d.sunEl[tipIdx])],
+      [C.earth, "Earth " + fmtDeg(d.earthEl[tipIdx])]
+    ];
+    ctx.font = "12px system-ui, -apple-system, sans-serif";
+    const bw = Math.max(...lines.map(l => ctx.measureText(l[1]).width)) + 30, bh = lines.length * 18 + 10;
+    let bx = X(tipIdx) + 12; if (bx + bw > L + pw) bx = X(tipIdx) - 12 - bw;
+    const by = T + 6;
+    ctx.fillStyle = "rgba(10,15,28,0.94)"; ctx.strokeStyle = "#33415e"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, 8) : ctx.rect(bx, by, bw, bh); ctx.fill(); ctx.stroke();
+    ctx.textAlign = "left";
+    lines.forEach(([col, txt], k) => {
+      const ty = by + 18 + k * 18;
+      if (col) { ctx.fillStyle = col; ctx.fillRect(bx + 10, ty - 8, 10, 4); }
+      ctx.fillStyle = col ? C.text : C.muted;
+      ctx.fillText(txt, bx + (col ? 26 : 10), ty);
+    });
+  }
+}
+
+/* =====================================================================
+   PART 4 — POLAR SKY VIEW (canvas)
+   Centre of the plot = high in the sky, dashed circle = horizon,
+   darker outer ring = below the horizon. North is up, East is right
+   (like a sun-path diagram).
+   ===================================================================== */
+function drawSky() {
+  const canvas = $("sky");
+  const size = canvas.clientWidth;
+  const { ctx, w, h } = setupCanvas(canvas, size);
+  const site = selectedSite();
+  ctx.font = "13px system-ui, -apple-system, sans-serif";
+  if (!site) { $("readout").innerHTML = ""; $("skyNote").textContent = ""; return; }
+  const d = siteData(site), n = state.n;
+
+  // Zoom so the tracks fill the plot. At the pole everything is within a few degrees of the horizon.
+  let m = 0;
+  for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(d.sunEl[i]), Math.abs(d.earthEl[i]));
+  const elMax = Math.min(90, Math.max(5, Math.ceil(m / 5) * 5));
+  const cx = w / 2, cy = h / 2, R = w / 2 - 26;
+  const rOf = el => Math.min(1, Math.max(0, (elMax - el) / (2 * elMax))) * R;
+  const P = (el, az) => { const r = rOf(el); return [cx + r * sind(az), cy - r * cosd(az)]; };
+
+  // Background: below-horizon ring, sky disk, rings and cross
+  ctx.fillStyle = "#0a0f1c"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+  ctx.fillStyle = "#14203a"; ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, 2 * Math.PI); ctx.fill();
+  ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+  for (const el of [elMax / 2, -elMax / 2, -elMax]) { ctx.beginPath(); ctx.arc(cx, cy, rOf(el), 0, 2 * Math.PI); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+  ctx.setLineDash([6, 4]); ctx.strokeStyle = C.horizon; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+
+  // Ring labels along the north-east diagonal
+  ctx.fillStyle = C.muted; ctx.font = "11px system-ui, -apple-system, sans-serif"; ctx.textAlign = "left";
+  for (const el of [elMax, elMax / 2, 0, -elMax / 2]) {
+    const [x, y] = P(el, 45);
+    ctx.fillText(el === 0 ? "0° horizon" : (el > 0 ? "+" : "−") + Math.abs(el) + "°", x + 3, y - 3);
+  }
+  // Compass labels
+  ctx.font = "bold 13px system-ui, -apple-system, sans-serif"; ctx.fillStyle = C.text; ctx.textAlign = "center";
+  ctx.fillText("N", cx, cy - R - 8); ctx.fillText("S", cx, cy + R + 18);
+  ctx.fillText("E", cx + R + 13, cy + 5); ctx.fillText("W", cx - R - 13, cy + 5);
+
+  // Faint full tracks
+  const track = (elA, azA, col) => {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) { const [x, y] = P(elA[i], azA[i]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.globalAlpha = 0.35; ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
+  };
+  track(d.sunEl, d.sunAz, C.sun);
+  track(d.earthEl, d.earthAz, C.earth);
+
+  // Current positions (dot + direct label)
+  const i = state.idx;
+  for (const [el, az, col, name] of [[d.sunEl[i], d.sunAz[i], C.sun, "Sun"], [d.earthEl[i], d.earthAz[i], C.earth, "Earth"]]) {
+    const [x, y] = P(el, az);
+    ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = C.surface; ctx.stroke();
+    ctx.font = "12px system-ui, -apple-system, sans-serif"; ctx.fillStyle = C.text;
+    ctx.textAlign = x > cx ? "right" : "left";
+    ctx.fillText(name, x + (x > cx ? -12 : 12), y + 4);
+  }
+
+  $("skyNote").textContent = `Centre = ${elMax}° elevation, outer edge = −${elMax}°. Dashed circle = horizon; darker ring = below the horizon. Faint lines = tracks over the whole window.`;
+
+  // Text read-out with ✅/❌
+  const sunUp = d.sunEl[i] > 0, earthUp = d.earthEl[i] >= state.minEl;
+  $("readout").innerHTML = `
+    <div>☀️ Sun ${fmtDeg(d.sunEl[i])} · az ${d.sunAz[i].toFixed(0)}° — ${sunUp ? "✅ Power" : "❌ No sunlight"}</div>
+    <div>🌍 Earth ${fmtDeg(d.earthEl[i])} · az ${d.earthAz[i].toFixed(0)}° — ${earthUp ? "✅ Direct comms" : `❌ No direct comms (needs ≥ ${state.minEl}°)`}</div>`;
+}
+
+/* =====================================================================
+   PART 5 — WIRING EVERYTHING TOGETHER
+   ===================================================================== */
+function renderSiteSelect() {
+  const sites = checkedSites(), sel = selectedSite();
+  $("chartSite").innerHTML = sites.map(s => `<option value="${s.id}" ${sel && s.id === sel.id ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("");
+  $("chartSiteName").textContent = sel ? sel.name : "no site selected";
+}
+
+// Redraw the parts that depend on the slider time
+function renderTimeViews() {
+  $("slider").max = Math.max(0, state.n - 1);
+  $("slider").value = state.idx;
+  $("timeLabel").textContent = state.n ? fmtTime(timeOf(state.idx)) : "";
+  drawChart();
+  drawSky();
+}
+
+// Full update: after any control change
+function update() {
+  if (!readControls()) return;
+  computeVectors();
+  renderSiteSelect();
+  renderTable();
+  renderTimeViews();
+}
+
+function selectSite(id) {
+  state.selectedId = id;
+  renderSiteSelect();
+  renderTable();
+  renderTimeViews();
+}
+
+function setIdx(i) {
+  state.idx = Math.max(0, Math.min(state.n - 1, i));
+  renderTimeViews();
+}
+
+// ---- Controls ----
+$("start").addEventListener("change", update);
+$("length").addEventListener("change", update);
+$("minEl").addEventListener("input", update);
+
+$("siteList").addEventListener("change", e => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  SITES.find(s => s.id === id).checked = e.target.checked;
+  update();
+});
+$("siteList").addEventListener("click", e => {
+  const id = e.target.dataset.remove;
+  if (!id) return;
+  e.preventDefault();
+  SITES.splice(SITES.findIndex(s => s.id === id), 1);
+  renderSiteList();
+  update();
+});
+
+$("customForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const msg = $("customMsg");
+  const name = $("cName").value.trim() || "Custom site";
+  const lat = parseFloat($("cLat").value);
+  let lon = parseFloat($("cLon").value);
+  if (isNaN(lat) || lat < -90 || lat > 90) { msg.className = "msg error"; msg.textContent = "Latitude must be a number between −90 and 90."; return; }
+  if (isNaN(lon) || lon < -360 || lon > 360) { msg.className = "msg error"; msg.textContent = "Longitude must be a number between 0 and 360 (°E)."; return; }
+  lon = norm360(lon);
+  const site = { name, lat, lon, id: "s" + nextSiteId++, checked: true, custom: true, data: null };
+  SITES.push(site);
+  msg.className = "msg ok"; msg.textContent = `Added “${name}” and selected it.`;
+  $("customForm").reset();
+  state.selectedId = site.id;
+  renderSiteList();
+  update();
+});
+
+// ---- Table rows select a site ----
+$("tableBody").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) selectSite(tr.dataset.id); });
+$("tableBody").addEventListener("keydown", e => {
+  const tr = e.target.closest("tr[data-id]");
+  if (tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectSite(tr.dataset.id); }
+});
+$("chartSite").addEventListener("change", e => selectSite(e.target.value));
+
+// ---- Time slider + play button ----
+$("slider").addEventListener("input", e => { stopPlay(); setIdx(parseInt(e.target.value, 10)); });
+
+let playTimer = null;
+function stopPlay() { state.playing = false; clearInterval(playTimer); $("play").textContent = "▶"; $("play").setAttribute("aria-label", "Play animation"); }
+$("play").addEventListener("click", () => {
+  if (state.playing) { stopPlay(); return; }
+  if (state.idx >= state.n - 1) state.idx = 0;
+  state.playing = true; $("play").textContent = "⏸"; $("play").setAttribute("aria-label", "Pause animation");
+  const stepPerFrame = Math.max(1, Math.round(state.n / 400));
+  playTimer = setInterval(() => {
+    if (state.idx >= state.n - 1) { stopPlay(); return; }
+    setIdx(state.idx + stepPerFrame);
+  }, 40);
+});
+
+// ---- Chart: hover shows a tooltip; tap/drag moves the time cursor ----
+let dragging = false;
+function idxFromEvent(e) {
+  if (!chartGeom) return null;
+  const rect = $("chart").getBoundingClientRect();
+  const f = (e.clientX - rect.left - chartGeom.L) / chartGeom.pw;
+  return Math.max(0, Math.min(chartGeom.n - 1, Math.round(f * (chartGeom.n - 1))));
+}
+$("chart").addEventListener("pointerdown", e => {
+  const i = idxFromEvent(e); if (i === null) return;
+  dragging = true; $("chart").setPointerCapture(e.pointerId);
+  stopPlay(); state.hover = i; setIdx(i);
+});
+$("chart").addEventListener("pointermove", e => {
+  const i = idxFromEvent(e); if (i === null) return;
+  state.hover = i;
+  if (dragging) setIdx(i); else drawChart();
+});
+const endDrag = e => { dragging = false; if (e.pointerType !== "mouse") { state.hover = null; drawChart(); } };
+$("chart").addEventListener("pointerup", endDrag);
+$("chart").addEventListener("pointercancel", endDrag);
+$("chart").addEventListener("pointerleave", () => { if (!dragging) { state.hover = null; drawChart(); } });
+
+// Redraw canvases when the screen size or iPad orientation changes
+let resizeRaf = 0;
+window.addEventListener("resize", () => { cancelAnimationFrame(resizeRaf); resizeRaf = requestAnimationFrame(renderTimeViews); });
+
+// ---- Self-test against NASA JPL DE421 reference values ----
+function renderSelfTest() {
+  const t = new Date("2026-11-14T00:00:00Z");
+  const surf = skyAt(t, -89.45, 222.7);
+  const cent = skyAt(t, -89.45, 222.7, { fromCentre: true });
+  $("selfTest").innerHTML = `
+    <tr><th>Quantity</th><th>This app</th><th>JPL DE421</th></tr>
+    <tr><td>Sun elevation</td><td>${fmtDeg(surf.sun.el)}</td><td>+1.51°</td></tr>
+    <tr><td>Earth elevation, direction from Moon's centre</td><td>${fmtDeg(cent.earth.el)}</td><td>−4.82°</td></tr>
+    <tr><td>Earth elevation seen from the surface (used by the app)</td><td>${fmtDeg(surf.earth.el)}</td><td>— (reference uses Moon's centre)</td></tr>
+    <tr><td>Earth azimuth</td><td>${surf.earth.az.toFixed(1)}°</td><td>≈ 136.0°</td></tr>`;
+}
+
+// ---- Start ----
+renderSiteList();
+update();
+renderSelfTest();
 </script>
 </body>
 </html>
