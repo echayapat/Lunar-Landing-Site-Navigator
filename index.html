@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar Landing Site Navigator</title>
+<style>
+  /* Temporary simple styling — the real space theme comes in Step 5 */
+  body { font-family: system-ui, sans-serif; background: #0b0f1a; color: #e6e9f0; margin: 0; padding: 16px; }
+  h1 { font-size: 1.4rem; }
+  label { display: inline-block; margin: 4px 12px 4px 0; }
+  input, button { font-size: 1rem; padding: 6px; border-radius: 6px; border: 1px solid #445; background: #161c2c; color: inherit; }
+  button { cursor: pointer; background: #2b4a8a; }
+  pre { background: #161c2c; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>🌙 Lunar Landing Site Navigator — Step 1: Astronomy test</h1>
+
+<div>
+  <label>Date/time (UTC) <input id="t-date" type="datetime-local" value="2026-11-14T00:00"></label>
+  <label>Latitude ° <input id="t-lat" type="number" step="0.01" value="-89.45"></label>
+  <label>Longitude °E <input id="t-lon" type="number" step="0.01" value="222.7"></label>
+  <button id="t-go">Compute</button>
+</div>
+<pre id="t-out"></pre>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   PART 1 — ASTRONOMY
+   Goal: skyAt(date, lat, lon) -> where are the Sun and Earth in the sky
+   as seen by someone standing at (lat, lon) on the Moon?
+   ===================================================================== */
+
+// ---- Small math helpers -------------------------------------------
+const DEG = Math.PI / 180;                 // multiply degrees by this to get radians
+const sind = d => Math.sin(d * DEG);       // sine of an angle given in degrees
+const cosd = d => Math.cos(d * DEG);
+const norm360 = d => ((d % 360) + 360) % 360;   // wrap an angle into 0..360
+
+const AU_KM = 149597870.7;      // 1 astronomical unit in km
+const MOON_RADIUS_KM = 1737.4;  // mean lunar radius
+const DELTA_T_SEC = 69.2;       // TT − UTC (≈ 69 s in 2026). Astronomy formulas use TT.
+
+// ---- Time --------------------------------------------------------
+// Julian Date: a continuous day count used by astronomers.
+// JavaScript time is milliseconds since 1970-01-01 = JD 2440587.5
+function julianDateTT(date) {
+  return date.getTime() / 86400000 + 2440587.5 + DELTA_T_SEC / 86400;
+}
+
+// ---- Sun, as seen from Earth (Meeus, Astronomical Algorithms, ch. 25) ----
+// Returns ecliptic longitude/latitude (deg, "of date") and distance (km).
+function sunGeocentric(T) {
+  const L0 = 280.46646 + 36000.76983 * T + 0.0003032 * T * T;  // mean longitude
+  const M  = 357.52911 + 35999.05029 * T - 0.0001537 * T * T;  // mean anomaly
+  const e  = 0.016708634 - 0.000042037 * T - 0.0000001267 * T * T; // orbit eccentricity
+  // Equation of centre: correction because Earth's orbit is an ellipse
+  const C = (1.914602 - 0.004817 * T - 0.000014 * T * T) * sind(M)
+          + (0.019993 - 0.000101 * T) * sind(2 * M)
+          + 0.000289 * sind(3 * M);
+  const lon = L0 + C;          // true longitude
+  const nu  = M + C;           // true anomaly
+  const rAU = 1.000001018 * (1 - e * e) / (1 + e * cosd(nu));
+  return { lon: lon, lat: 0, dist: rAU * AU_KM };
+}
+
+// ---- Moon, as seen from Earth (Meeus ch. 47) ---------------------
+// Each row: [D, M, M', F, coefficient(s)]. The formula adds up
+// coefficient × sin/cos(D·D + M·M + M'·M' + F·F) for every row.
+// Table 47.A: longitude (sin, 1e-6 deg) and distance (cos, 1e-3 km)
+const MOON_LR = [
+  [0,0,1,0,6288774,-20905355],[2,0,-1,0,1274027,-3699111],[2,0,0,0,658314,-2955968],
+  [0,0,2,0,213618,-569925],[0,1,0,0,-185116,48888],[0,0,0,2,-114332,-3149],
+  [2,0,-2,0,58793,246158],[2,-1,-1,0,57066,-152138],[2,0,1,0,53322,-170733],
+  [2,-1,0,0,45758,-204586],[0,1,-1,0,-40923,-129620],[1,0,0,0,-34720,108743],
+  [0,1,1,0,-30383,104755],[2,0,0,-2,15327,10321],[0,0,1,2,-12528,0],
+  [0,0,1,-2,10980,79661],[4,0,-1,0,10675,-34782],[0,0,3,0,10034,-23210],
+  [4,0,-2,0,8548,-21636],[2,1,-1,0,-7888,24208],[2,1,0,0,-6766,30824],
+  [1,0,-1,0,-5163,-8379],[1,1,0,0,4987,-16675],[2,-1,1,0,4036,-12831],
+  [2,0,2,0,3994,-10445],[4,0,0,0,3861,-11650],[2,0,-3,0,3665,14403],
+  [0,1,-2,0,-2689,-7003],[2,0,-1,2,-2602,0],[2,-1,-2,0,2390,10056],
+  [1,0,1,0,-2348,6322],[2,-2,0,0,2236,-9884],[0,1,2,0,-2120,5751],
+  [0,2,0,0,-2069,0],[2,-2,-1,0,2048,-4950],[2,0,1,-2,-1773,4130],
+  [2,0,0,2,-1595,0],[4,-1,-1,0,1215,-3958],[0,0,2,2,-1110,0],
+  [3,0,-1,0,-892,3258],[2,1,1,0,-810,2616],[4,-1,-2,0,759,-1897],
+  [0,2,-1,0,-713,-2117],[2,2,-1,0,-700,2354],[2,1,-2,0,691,0],
+  [2,-1,0,-2,596,0],[4,0,1,0,549,-1423],[0,0,4,0,537,-1117],
+  [4,-1,0,0,520,-1571],[1,0,-2,0,-487,-1739],[2,1,0,-2,-399,0],
+  [0,0,2,-2,-381,-4421],[1,1,1,0,351,0],[3,0,-2,0,-340,0],
+  [4,0,-3,0,330,0],[2,-1,2,0,327,0],[0,2,1,0,-323,1165],
+  [1,1,-1,0,299,0],[2,0,3,0,294,0],[2,0,-1,-2,0,8752]
+];
+// Table 47.B: latitude (sin, 1e-6 deg)
+const MOON_B = [
+  [0,0,0,1,5128122],[0,0,1,1,280602],[0,0,1,-1,277693],[2,0,0,-1,173237],
+  [2,0,-1,1,55413],[2,0,-1,-1,46271],[2,0,0,1,32573],[0,0,2,1,17198],
+  [2,0,1,-1,9266],[0,0,2,-1,8822],[2,-1,0,-1,8216],[2,0,-2,-1,4324],
+  [2,0,1,1,4200],[2,1,0,-1,-3359],[2,-1,-1,1,2463],[2,-1,0,1,2211],
+  [2,-1,-1,-1,2065],[0,1,-1,-1,-1870],[4,0,-1,-1,1828],[0,1,0,1,-1794],
+  [0,0,0,3,-1749],[0,1,-1,1,-1565],[1,0,0,1,-1491],[0,1,1,1,-1475],
+  [0,1,1,-1,-1410],[0,1,0,-1,-1344],[1,0,0,-1,-1335],[0,0,3,1,1107],
+  [4,0,0,-1,1021],[4,0,-1,1,833],[0,0,1,-3,777],[4,0,-2,1,671],
+  [2,0,0,-3,607],[2,0,2,-1,596],[2,-1,1,-1,491],[2,0,-2,1,-451],
+  [0,0,3,-1,439],[2,0,2,1,422],[2,0,-3,-1,421],[2,1,-1,1,-366],
+  [2,1,0,1,-351],[4,0,0,1,331],[2,-1,1,1,315],[2,-2,0,-1,302],
+  [0,0,1,3,-283],[2,1,1,-1,-229],[1,1,0,-1,223],[1,1,0,1,223],
+  [0,1,-2,-1,-220],[2,1,-1,-1,-220],[1,0,1,1,-185],[2,-1,-2,-1,181],
+  [0,1,2,1,-177],[4,0,-2,-1,176],[4,-1,-1,-1,166],[1,0,1,-1,-164],
+  [4,0,1,-1,132],[1,0,-1,-1,-119],[4,-1,0,-1,115],[2,-2,0,1,107]
+];
+
+function moonGeocentric(T) {
+  const T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+  // Fundamental angles (degrees)
+  const Lp = 218.3164477 + 481267.88123421 * T - 0.0015786 * T2 + T3 / 538841 - T4 / 65194000; // Moon mean longitude
+  const D  = 297.8501921 + 445267.1114034 * T - 0.0018819 * T2 + T3 / 545868 - T4 / 113065000;  // Moon–Sun elongation
+  const M  = 357.5291092 + 35999.0502909 * T - 0.0001536 * T2 + T3 / 24490000;                  // Sun mean anomaly
+  const Mp = 134.9633964 + 477198.8675055 * T + 0.0087414 * T2 + T3 / 69699 - T4 / 14712000;    // Moon mean anomaly
+  const F  = 93.2720950 + 483202.0175233 * T - 0.0036539 * T2 - T3 / 3526000 + T4 / 863310000;  // Moon argument of latitude
+  const A1 = 119.75 + 131.849 * T, A2 = 53.09 + 479264.290 * T, A3 = 313.45 + 481266.484 * T;
+  const E  = 1 - 0.002516 * T - 0.0000074 * T2;   // Earth orbit eccentricity factor
+
+  let sl = 0, sr = 0, sb = 0;
+  for (const [d, m, mp, f, cl, cr] of MOON_LR) {
+    const arg = d * D + m * M + mp * Mp + f * F;
+    const eFac = Math.abs(m) === 1 ? E : Math.abs(m) === 2 ? E * E : 1;
+    sl += cl * eFac * sind(arg);
+    sr += cr * eFac * cosd(arg);
+  }
+  for (const [d, m, mp, f, cb] of MOON_B) {
+    const arg = d * D + m * M + mp * Mp + f * F;
+    const eFac = Math.abs(m) === 1 ? E : Math.abs(m) === 2 ? E * E : 1;
+    sb += cb * eFac * sind(arg);
+  }
+  // Extra corrections (Venus, Jupiter, Earth flattening)
+  sl += 3958 * sind(A1) + 1962 * sind(Lp - F) + 318 * sind(A2);
+  sb += -2235 * sind(Lp) + 382 * sind(A3) + 175 * sind(A1 - F) + 175 * sind(A1 + F)
+        + 127 * sind(Lp - Mp) - 115 * sind(Lp + Mp);
+
+  return {
+    lon: Lp + sl / 1e6,                // degrees
+    lat: sb / 1e6,                     // degrees
+    dist: 385000.56 + sr / 1000        // km, Earth centre to Moon centre
+  };
+}
+
+// ---- Ecliptic (of date) -> J2000 equatorial x,y,z ------------------
+// 1) Remove precession: the "of date" longitude drifts ~1.4°/century
+// 2) Tilt from the ecliptic plane to Earth's equator (obliquity ε, J2000)
+const OBLIQUITY_J2000 = 23.4392911;
+function eclipticToJ2000(p, T) {
+  const lon = p.lon - 1.3969713 * T;
+  const lat = p.lat;
+  const x = p.dist * cosd(lat) * cosd(lon);
+  const y = p.dist * cosd(lat) * sind(lon);
+  const z = p.dist * sind(lat);
+  const ce = cosd(OBLIQUITY_J2000), se = sind(OBLIQUITY_J2000);
+  return [x, y * ce - z * se, y * se + z * ce];
+}
+
+// ---- Moon orientation (IAU 2009 / Archinal et al. 2011) -------------
+// alpha0, delta0 = direction of the Moon's north pole in the sky
+// W = how far the Moon has rotated around that pole (prime meridian angle)
+function moonOrientation(d) {          // d = days since J2000 (TT)
+  const T = d / 36525;
+  const E1 = 125.045 - 0.0529921 * d,  E2 = 250.089 - 0.1059842 * d;
+  const E3 = 260.008 + 13.0120009 * d, E4 = 176.625 + 13.3407154 * d;
+  const E5 = 357.529 + 0.9856003 * d,  E6 = 311.589 + 26.4057084 * d;
+  const E7 = 134.963 + 13.0649930 * d, E8 = 276.617 + 0.3287146 * d;
+  const E9 = 34.226 + 1.7484877 * d,   E10 = 15.134 - 0.1589763 * d;
+  const E11 = 119.743 + 0.0036096 * d, E12 = 239.961 + 0.1643573 * d;
+  const E13 = 25.053 + 12.9590088 * d;
+
+  const alpha0 = 269.9949 + 0.0031 * T - 3.8787 * sind(E1) - 0.1204 * sind(E2)
+    + 0.0700 * sind(E3) - 0.0172 * sind(E4) + 0.0072 * sind(E6)
+    - 0.0052 * sind(E10) + 0.0043 * sind(E13);
+  const delta0 = 66.5392 + 0.0130 * T + 1.5419 * cosd(E1) + 0.0239 * cosd(E2)
+    - 0.0278 * cosd(E3) + 0.0068 * cosd(E4) - 0.0029 * cosd(E6)
+    + 0.0009 * cosd(E7) + 0.0008 * cosd(E10) - 0.0009 * cosd(E13);
+  const W = 38.3213 + 13.17635815 * d - 1.4e-12 * d * d
+    + 3.5610 * sind(E1) + 0.1208 * sind(E2) - 0.0642 * sind(E3) + 0.0158 * sind(E4)
+    + 0.0252 * sind(E5) - 0.0066 * sind(E6) - 0.0047 * sind(E7) - 0.0046 * sind(E8)
+    + 0.0028 * sind(E9) + 0.0052 * sind(E10) + 0.0040 * sind(E11) + 0.0019 * sind(E12)
+    - 0.0044 * sind(E13);
+  return { alpha0, delta0, W };
+}
+
+// Rotate a vector about the z axis / x axis (frame rotation by angle a, degrees)
+function rotZ(v, a) { const c = cosd(a), s = sind(a); return [c * v[0] + s * v[1], -s * v[0] + c * v[1], v[2]]; }
+function rotX(v, a) { const c = cosd(a), s = sind(a); return [v[0], c * v[1] + s * v[2], -s * v[1] + c * v[2]]; }
+
+// J2000 vector -> Moon body-fixed vector (x toward lon 0°, z toward north pole)
+function toMoonFixed(v, o) {
+  return rotZ(rotX(rotZ(v, 90 + o.alpha0), 90 - o.delta0), o.W);
+}
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+// ---- Elevation & azimuth at a site --------------------------------
+// target: body-fixed vector from Moon centre to the object (km)
+function elevAz(target, latDeg, lonDeg) {
+  const cl = cosd(latDeg), sl = sind(latDeg), co = cosd(lonDeg), so = sind(lonDeg);
+  const up    = [cl * co, cl * so, sl];      // straight up from the ground
+  const east  = [-so, co, 0];
+  const north = [-sl * co, -sl * so, cl];
+  // Look from the site, not from the Moon's centre (matters for Earth: ~0.26°)
+  const site = up.map(c => c * MOON_RADIUS_KM);
+  const v = [target[0] - site[0], target[1] - site[1], target[2] - site[2]];
+  const len = Math.hypot(v[0], v[1], v[2]);
+  const el = Math.asin(dot(v, up) / len) / DEG;
+  const az = norm360(Math.atan2(dot(v, east), dot(v, north)) / DEG); // 0=N, 90=E
+  return { el, az };
+}
+
+// ---- The main function ---------------------------------------------
+function skyAt(date, latDeg, lonEastDeg) {
+  const jd = julianDateTT(date);
+  const d = jd - 2451545.0;        // days since J2000.0
+  const T = d / 36525;             // Julian centuries since J2000.0
+
+  // Positions relative to Earth's centre, in J2000 equatorial coordinates (km)
+  const sunEq  = eclipticToJ2000(sunGeocentric(T), T);
+  const moonEq = eclipticToJ2000(moonGeocentric(T), T);
+
+  // Shift origin to the Moon's centre
+  const sunFromMoon   = [sunEq[0] - moonEq[0], sunEq[1] - moonEq[1], sunEq[2] - moonEq[2]];
+  const earthFromMoon = [-moonEq[0], -moonEq[1], -moonEq[2]];
+
+  // Rotate into the Moon's own frame (it spins and wobbles)
+  const o = moonOrientation(d);
+  return {
+    sun:   elevAz(toMoonFixed(sunFromMoon, o), latDeg, lonEastDeg),
+    earth: elevAz(toMoonFixed(earthFromMoon, o), latDeg, lonEastDeg)
+  };
+}
+
+/* ---- Step 1 test UI (will be replaced by the real app later) ---- */
+function runTest() {
+  const date = new Date(document.getElementById("t-date").value + ":00Z"); // treat as UTC
+  const lat = parseFloat(document.getElementById("t-lat").value);
+  const lon = parseFloat(document.getElementById("t-lon").value);
+  const out = document.getElementById("t-out");
+  if (isNaN(date.getTime()) || isNaN(lat) || isNaN(lon)) { out.textContent = "Please enter a valid date, latitude and longitude."; return; }
+  const s = skyAt(date, lat, lon);
+  const ref = skyAt(new Date("2026-11-14T00:00:00Z"), -89.45, 222.7);
+  out.textContent =
+    `Time: ${date.toISOString()}   Site: lat ${lat}°, lon ${lon}°E\n` +
+    `Sun:   elevation ${s.sun.el.toFixed(2)}°   azimuth ${s.sun.az.toFixed(1)}°\n` +
+    `Earth: elevation ${s.earth.el.toFixed(2)}°   azimuth ${s.earth.az.toFixed(1)}°\n\n` +
+    `Sanity check (Connecting Ridge, 2026-11-14 00:00 UTC):\n` +
+    `  Sun ${ref.sun.el.toFixed(2)}° (expected ≈ +1.8°)   Earth ${ref.earth.el.toFixed(2)}° (expected ≈ −6.8°)`;
+}
+document.getElementById("t-go").addEventListener("click", runTest);
+runTest();
+</script>
+</body>
+</html>
